@@ -109,6 +109,11 @@ class IncidentApi <<адаптер REST>> {
   +getById(id)
 }
 
+class DirectoryClient <<адаптер REST>> {
+  +animal(animalId)
+  +pen(penId)
+}
+
 EventConsumer --> FarmEvent : создаёт
 EventConsumer --> IncidentService : 1. handle(event)
 IncidentService --> EventDeduplicator : 2. isProcessed(event.id)
@@ -125,6 +130,7 @@ RuleEngine --> RuleConfig : activeRules() — какие правила вклю
 IncidentRule --> RuleConfig : threshold() — пороги правила
 RuleEngine --> Incident : создаёт
 IncidentService ..> Incident : 5. получает Incident[] как результат шага 4
+IncidentService --> DirectoryClient : 5.1 карточка животного и загон
 IncidentService --> IncidentSuppressor : 6. isDuplicate(incident)
 IncidentService --> IncidentRepository : 7. save(incident)
 IncidentService --> IncidentPublisher : 8. publish(incident)
@@ -149,6 +155,12 @@ end note
 note bottom of EventConsumer
   Обмен с другими сервисами только
   через адаптеры Kafka: домен о брокере не знает
+end note
+
+note bottom of DirectoryClient
+  Справочники живут в отдельном сервисе фермы,
+  поэтому здесь только клиент по REST,
+  своего репозитория нет
 end note
 
 note bottom of IncidentRepository

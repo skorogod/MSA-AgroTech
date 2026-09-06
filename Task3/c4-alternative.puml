@@ -85,6 +85,12 @@ class NotificationSender {
   +notifyOnDuty(incident)
 }
 
+class DirectoryModule {
+  +animal(animalId)
+  +pen(penId)
+  +onDutyNow(farmId)
+}
+
 interface IncidentRepository {
   +save(incident)
   +findRecent(filter): Incident[]
@@ -104,6 +110,12 @@ interface RuleConfigRepository {
 interface SyncBufferRepository {
   +buffer(event)
   +takeBatch(): batch
+}
+
+interface DirectoryRepository {
+  +animal(animalId)
+  +pen(penId)
+  +duties(farmId)
 }
 
 class SyncModule {
@@ -131,7 +143,10 @@ IncidentRule <|.. HeadcountRule
 IncidentRule <|.. EquipmentRule
 RuleEngine --> Incident : создаёт
 IncidentHandler ..> Incident : 4. получает Incident[] как результат шага 3
+IncidentHandler --> DirectoryModule : 4.1 карточка животного и загон
 IncidentHandler --> NotificationSender : 5. notifyOnDuty(incident)
+NotificationSender --> DirectoryModule : onDutyNow() — кто дежурит
+DirectoryModule --> DirectoryRepository : читает из своей схемы
 IncidentHandler --> IncidentRepository : 6. save(incident)
 NotificationSender ..> Incident : оповещает дежурного
 IncidentRepository ..> Incident : сохраняет в БД
