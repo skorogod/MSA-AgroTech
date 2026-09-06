@@ -1,0 +1,154 @@
+@startuml C4_Код_Сервиса_Фермы_Альтернативное_Решение
+
+title C4: Код сервиса фермы — ВАРИАНТ 2 (модульный монолит)
+
+skinparam classAttributeIconSize 0
+hide empty members
+
+class FarmRuntime <<точка входа>> {
+  +start()
+  +stop()
+}
+
+class InProcessEventBus <<шина в процессе>> {
+  +publish(event: FarmEvent)
+  +subscribe(type, handler)
+  +dropDuplicates(event): boolean
+}
+
+class VideoModule {
+  +readStream(camera)
+  +grabFrame(): Frame
+}
+
+class AnalyticsModule <<GPU>> {
+  +analyze(frame): Detection[]
+}
+
+class BiometricsModule {
+  +onSensorReading(reading)
+  +findDeviation(): Deviation
+}
+
+class FarmEvent <<событие>> {
+  +id
+  +type
+  +penId
+  +animalId
+  +payload
+  +occurredAt
+}
+
+class IncidentHandler <<сценарий>> {
+  +handle(event: FarmEvent)
+}
+
+class FarmState <<состояние>> {
+  -cache: StateSnapshot[]
+  +update(event: FarmEvent)
+  +snapshot(penId): StateSnapshot
+  +persist()
+  +restore()
+}
+
+class StateSnapshot {
+  +detections
+  +biometrics
+  +telemetry
+}
+
+class RuleEngine {
+  -rules: IncidentRule[]
+  +evaluate(event, snapshot): Incident[]
+}
+
+interface IncidentRule {
+  +applicableTo(event): boolean
+  +evaluate(event, snapshot): Incident
+}
+
+class FightRule
+class CrushingRule
+class HealthRule
+class HeadcountRule
+class EquipmentRule
+
+class Incident {
+  +id
+  +type
+  +penId
+  +severity
+  +detectedAt
+}
+
+class NotificationSender {
+  +notifyOnDuty(incident)
+}
+
+interface IncidentRepository {
+  +save(incident)
+  +findRecent(filter): Incident[]
+}
+
+interface StateRepository {
+  +saveSnapshot(snapshot)
+  +loadSnapshot(penId): StateSnapshot
+}
+
+interface RuleConfigRepository {
+  +activeRules(): ruleId[]
+  +thresholds(ruleId)
+  +saveConfig(update)
+}
+
+interface SyncBufferRepository {
+  +buffer(event)
+  +takeBatch(): batch
+}
+
+class SyncModule {
+  +push(): batch
+  +pullConfig()
+}
+
+FarmRuntime --> VideoModule : запускает
+FarmRuntime --> AnalyticsModule : запускает
+FarmRuntime --> BiometricsModule : запускает
+FarmRuntime --> SyncModule : запускает
+VideoModule --> AnalyticsModule : кадры
+AnalyticsModule --> InProcessEventBus : publish()
+BiometricsModule --> InProcessEventBus : publish()
+InProcessEventBus --> FarmEvent : передаёт
+InProcessEventBus --> IncidentHandler : 1. вызывает обработчик
+IncidentHandler --> FarmState : 2. update() / snapshot()
+FarmState --> StateSnapshot : отдаёт
+IncidentHandler --> RuleEngine : 3. evaluate(event, snapshot)
+RuleEngine o--> IncidentRule : список правил
+IncidentRule <|.. FightRule
+IncidentRule <|.. CrushingRule
+IncidentRule <|.. HealthRule
+IncidentRule <|.. HeadcountRule
+IncidentRule <|.. EquipmentRule
+RuleEngine --> Incident : создаёт
+IncidentHandler ..> Incident : 4. получает Incident[] как результат шага 3
+IncidentHandler --> NotificationSender : 5. notifyOnDuty(incident)
+IncidentHandler --> IncidentRepository : 6. save(incident)
+NotificationSender ..> Incident : оповещает дежурного
+IncidentRepository ..> Incident : сохраняет в БД
+SyncModule --> SyncBufferRepository : takeBatch()
+FarmState --> StateRepository : persist() / restore()
+RuleEngine --> RuleConfigRepository : activeRules() — какие правила включены
+IncidentRule --> RuleConfigRepository : thresholds() — пороги правила
+
+note bottom of InProcessEventBus
+  Вызовы внутри процесса: быстрее,
+  но ошибка в одном модуле
+  останавливает остальные (НФТ 3)
+end note
+
+note bottom of FarmRuntime
+  Все модули собираются и обновляются
+  вместе, перезапуск общий (НФТ 4)
+end note
+
+@enduml

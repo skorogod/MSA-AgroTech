@@ -7,7 +7,7 @@
 ## Как отрисовать диаграммы
 
 ```bash
-java -jar plantuml.jar -DRELATIVE_INCLUDE="." -tpng -o . Task1/*.puml Task2/*.puml
+java -jar plantuml.jar -DRELATIVE_INCLUDE="." -tpng -o . Task1/*.puml Task2/*.puml Task3/*.puml
 ```
 
 Флаг `-DRELATIVE_INCLUDE="."` заставляет шаблон брать `templates/C4.puml` локально; без флага он подтянет C4-PlantUML из интернета.
