@@ -1,0 +1,195 @@
+@startuml C4_Код_Сервиса_Инцидентов_Основное_Решение
+
+title C4: Код сервиса инцидентов — ВАРИАНТ 1 (микросервисы на ферме)
+
+skinparam classAttributeIconSize 0
+hide empty members
+
+class EventConsumer <<адаптер Kafka>> {
+  +subscribe(topics)
+  +onMessage(message)
+}
+
+class FarmEvent <<событие>> {
+  +id
+  +type
+  +penId
+  +animalId
+  +payload
+  +occurredAt
+}
+
+class IncidentService <<сценарий>> {
+  +handle(event: FarmEvent)
+}
+
+class FarmState <<состояние>> {
+  -cache: StateSnapshot[]
+  +update(event: FarmEvent)
+  +snapshot(penId): StateSnapshot
+  +persist()
+  +restore()
+}
+
+class StateSnapshot {
+  +detections
+  +biometrics
+  +telemetry
+}
+
+class RuleEngine {
+  -rules: IncidentRule[]
+  +evaluate(event, snapshot): Incident[]
+}
+
+interface IncidentRule {
+  +applicableTo(event): boolean
+  +evaluate(event, snapshot): Incident
+}
+
+class FightRule
+class CrushingRule
+class HealthRule
+class HeadcountRule
+class EquipmentRule
+
+class RuleConfig <<конфигурация>> {
+  +activeRules(): ruleId[]
+  +enabled(ruleId): boolean
+  +threshold(ruleId, name)
+  +apply(update)
+  +loadOnStart()
+}
+
+class EventDeduplicator {
+  +isProcessed(eventId): boolean
+  +remember(event: FarmEvent)
+}
+
+class IncidentSuppressor {
+  +isDuplicate(incident): boolean
+}
+
+class Incident {
+  +id
+  +type
+  +penId
+  +severity
+  +frameRef
+  +detectedAt
+}
+
+interface IncidentRepository {
+  +save(incident)
+  +findRecent(filter): Incident[]
+}
+
+interface StateRepository {
+  +saveSnapshot(snapshot)
+  +loadSnapshot(penId): StateSnapshot
+}
+
+interface RuleConfigRepository {
+  +activeRules(): ruleId[]
+  +thresholds(ruleId)
+  +saveConfig(update)
+}
+
+interface ProcessedEventRepository {
+  +isProcessed(eventId): boolean
+  +remember(eventId)
+}
+
+class IncidentPublisher <<адаптер Kafka>> {
+  +publish(incident)
+}
+
+class IncidentApi <<адаптер REST>> {
+  +list(filter)
+  +getById(id)
+}
+
+class DirectoryClient <<адаптер REST>> {
+  +animal(animalId)
+  +pen(penId)
+}
+
+EventConsumer --> FarmEvent : создаёт
+EventConsumer --> IncidentService : 1. handle(event)
+IncidentService --> EventDeduplicator : 2. isProcessed(event.id)
+IncidentService --> FarmState : 3. update() / snapshot()
+FarmState --> StateSnapshot : отдаёт
+IncidentService --> RuleEngine : 4. evaluate(event, snapshot)
+RuleEngine o--> IncidentRule : список правил
+IncidentRule <|.. FightRule
+IncidentRule <|.. CrushingRule
+IncidentRule <|.. HealthRule
+IncidentRule <|.. HeadcountRule
+IncidentRule <|.. EquipmentRule
+RuleEngine --> RuleConfig : activeRules() — какие правила включены
+IncidentRule --> RuleConfig : threshold() — пороги правила
+RuleEngine --> Incident : создаёт
+IncidentService ..> Incident : 5. получает Incident[] как результат шага 4
+IncidentService --> DirectoryClient : 5.1 карточка животного и загон
+IncidentService --> IncidentSuppressor : 6. isDuplicate(incident)
+IncidentService --> IncidentRepository : 7. save(incident)
+IncidentService --> IncidentPublisher : 8. publish(incident)
+IncidentSuppressor ..> Incident : проверяет на повтор
+IncidentRepository ..> Incident : сохраняет в БД
+IncidentPublisher ..> Incident : публикует в топик инцидентов
+IncidentApi --> IncidentRepository : findRecent()
+FarmState --> StateRepository : persist() / restore()
+IncidentSuppressor --> IncidentRepository : findRecent()
+EventDeduplicator --> ProcessedEventRepository : remember() / isProcessed()
+RuleConfig --> RuleConfigRepository : загружает из БД список включённых правил и пороги
+EventConsumer --> RuleConfig : apply(update)
+
+note bottom of IncidentRule
+  Новое правило — это новый класс,
+  существующие не меняются (НФТ 4).
+  Классы правил лежат в коде, а какие из них
+  включены и с какими порогами — берётся
+  из локальной БД через RuleConfig
+end note
+
+note bottom of EventConsumer
+  Обмен с другими сервисами только
+  через адаптеры Kafka: домен о брокере не знает
+end note
+
+note bottom of DirectoryClient
+  Справочники живут в отдельном сервисе фермы,
+  поэтому здесь только клиент по REST,
+  своего репозитория нет
+end note
+
+note bottom of IncidentRepository
+  Свой репозиторий на каждый набор данных.
+  Все пишут в одну локальную БД, но не смешивают
+  инциденты, состояние, конфигурацию
+  и обработанные события
+end note
+
+note bottom of IncidentSuppressor
+  Две разные проверки:
+  EventDeduplicator ловит повторную доставку
+  одного сообщения (ключ — event.id),
+  IncidentSuppressor схлопывает поток разных
+  детекций в один инцидент
+  (ключ — тип + загон + окно времени)
+end note
+
+note right of FarmState
+  Состояние живёт в памяти ради скорости (НФТ 1),
+  снимок в базе нужен для восстановления
+  после перезапуска
+end note
+
+note right of IncidentService
+  Порядок обработки события пронумерован:
+  список инцидентов возвращается из RuleEngine
+  на шаге 4 и только потом проверяется
+  на повтор, сохраняется и публикуется
+end note
+
+@enduml
